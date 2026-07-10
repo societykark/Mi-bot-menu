@@ -32,7 +32,7 @@ function createTrackLink(originalUrl) {
         timestamp: Date.now() 
     };
     // ⚠️ IMPORTANTE: Reemplaza esta URL con la de tu servidor en Render
-    const baseUrl = process.env.BASE_URL || 'https://mi-bot-menu.onrender.com';
+    const baseUrl = process.env.BASE_URL || 'https://karkstrck.onrender.com/';
     return `${baseUrl}/track/${token}`;
 }
 
